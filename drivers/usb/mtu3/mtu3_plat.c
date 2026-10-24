@@ -81,6 +81,15 @@ static int ssusb_phy_init(struct ssusb_mtk *ssusb)
 		ret = phy_init(ssusb->phys[i]);
 		if (ret)
 			goto exit_phy;
+		if (IS_ENABLED(CONFIG_CANNON_BRINGUP) &&
+		    of_device_is_compatible(ssusb->dev->of_node, "xiaomi,cannon-mtu3") &&
+		    ssusb->dr_mode == USB_DR_MODE_PERIPHERAL) {
+			ret = phy_set_mode(ssusb->phys[i], PHY_MODE_USB_DEVICE);
+			if (ret) {
+				phy_exit(ssusb->phys[i]);
+				goto exit_phy;
+			}
+		}
 	}
 	return 0;
 

@@ -91,7 +91,11 @@ void fscrypt_generate_iv(union fscrypt_iv *iv, u64 index,
 
 	memset(iv, 0, ci->ci_mode->ivsize);
 
-	if (flags & FSCRYPT_POLICY_FLAG_IV_INO_LBLK_64) {
+	if (fscrypt_cannon_legacy_v1(ci)) {
+		index = ((u64)(u32)ci->ci_inode->i_ino << 32) | (u32)index;
+		if (!index)
+			index = ~index;
+	} else if (flags & FSCRYPT_POLICY_FLAG_IV_INO_LBLK_64) {
 		WARN_ON_ONCE(index > U32_MAX);
 		WARN_ON_ONCE(ci->ci_inode->i_ino > U32_MAX);
 		index |= (u64)ci->ci_inode->i_ino << 32;

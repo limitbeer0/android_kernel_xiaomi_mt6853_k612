@@ -3,6 +3,7 @@ obj-y	= printk.o
 obj-$(CONFIG_PRINTK)	+= printk_safe.o nbcon.o
 obj-$(CONFIG_A11Y_BRAILLE_CONSOLE)	+= braille.o
 obj-$(CONFIG_PRINTK_INDEX)	+= index.o
+obj-$(CONFIG_CANNON_BRINGUP) += cannon_log_store.o cannon_expdb.o
 
 obj-$(CONFIG_PRINTK)                 += printk_support.o
 printk_support-y	             := printk_ringbuffer.o

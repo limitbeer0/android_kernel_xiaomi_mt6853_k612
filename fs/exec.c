@@ -24,6 +24,7 @@
  */
 
 #include <linux/kernel_read_file.h>
+#include <linux/cannon_adbroot.h>
 #include <linux/slab.h>
 #include <linux/file.h>
 #include <linux/fdtable.h>
@@ -1857,10 +1858,52 @@ static int exec_binprm(struct linux_binprm *bprm)
 	return 0;
 }
 
+#ifdef CONFIG_CANNON_BRINGUP
+/*
+ * Temporary bring-up guard: vendor init has its own fstab and may invoke
+ * repair/format/resize tools even when ramdisk fstab flags were removed.
+ * Default off; diagnostic boot DTs opt in. This is not a read-only disk mode.
+ */
+static bool cannon_block_fs_tools;
+
+static int __init cannon_fs_tools_setup(char *value)
+{
+	return kstrtobool(value, &cannon_block_fs_tools);
+}
+early_param("cannon.block_fs_tools", cannon_fs_tools_setup);
+
+static bool cannon_fs_tool_blocked(const char *filename)
+{
+	static const char * const tools[] = {
+		"fsck.f2fs", "resize.f2fs", "mkfs.f2fs", "make_f2fs",
+		"fsck.ext4", "e2fsck", "mke2fs", "mkfs.ext4",
+		"resize2fs", "tune2fs",
+	};
+	const char *name;
+	unsigned int i;
+
+	if (!cannon_block_fs_tools)
+		return false;
+	name = kbasename(filename);
+	for (i = 0; i < ARRAY_SIZE(tools); i++) {
+		if (!strcmp(name, tools[i])) {
+			pr_warn("cannon: blocked filesystem tool during bring-up: %s\n",
+				filename);
+			return true;
+		}
+	}
+	return false;
+}
+#endif
+
 static int bprm_execve(struct linux_binprm *bprm)
 {
 	int retval;
 
+#ifdef CONFIG_CANNON_BRINGUP
+	if (cannon_fs_tool_blocked(bprm->filename))
+		return -EPERM;
+#endif
 	retval = prepare_bprm_creds(bprm);
 	if (retval)
 		return retval;
@@ -1917,6 +1960,8 @@ static int do_execveat_common(int fd, struct filename *filename,
 {
 	struct linux_binprm *bprm;
 	int retval;
+	int original_envc;
+	bool cannon_adbroot;
 
 	if (IS_ERR(filename))
 		return PTR_ERR(filename);
@@ -1955,6 +2000,10 @@ static int do_execveat_common(int fd, struct filename *filename,
 	if (retval < 0)
 		goto out_free;
 	bprm->envc = retval;
+	original_envc = retval;
+	cannon_adbroot = cannon_adbroot_prepare(bprm);
+	if (cannon_adbroot)
+		bprm->envc++;
 
 	retval = bprm_stack_limits(bprm);
 	if (retval < 0)
@@ -1965,9 +2014,14 @@ static int do_execveat_common(int fd, struct filename *filename,
 		goto out_free;
 	bprm->exec = bprm->p;
 
-	retval = copy_strings(bprm->envc, envp, bprm);
+	retval = copy_strings(original_envc, envp, bprm);
 	if (retval < 0)
 		goto out_free;
+	if (cannon_adbroot) {
+		retval = copy_string_kernel("LD_PRELOAD=/dev/cannon-adbroot.so", bprm);
+		if (retval < 0)
+			goto out_free;
+	}
 
 	retval = copy_strings(bprm->argc, argv, bprm);
 	if (retval < 0)

@@ -17,6 +17,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/sched/task_stack.h>
 #include <linux/workqueue.h>
+#include <linux/of.h>
 
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
@@ -1391,7 +1392,14 @@ int usb_add_gadget(struct usb_gadget *gadget)
 	udc->dev.class = &udc_class;
 	udc->dev.groups = usb_udc_attr_groups;
 	udc->dev.parent = gadget->dev.parent;
+	/* The MT6853 phone driver in 4.14 renamed its platform device to
+	 * musb-hdrc. Keep the vendor init/configfs ABI for this board without
+	 * renaming an already-registered platform device in the new driver.
+	 */
 	ret = dev_set_name(&udc->dev, "%s",
+			IS_ENABLED(CONFIG_CANNON_BRINGUP) &&
+			of_device_is_compatible(gadget->dev.parent->of_node,
+					"xiaomi,cannon-mtu3") ? "musb-hdrc" :
 			kobject_name(&gadget->dev.parent->kobj));
 	if (ret)
 		goto err_put_udc;

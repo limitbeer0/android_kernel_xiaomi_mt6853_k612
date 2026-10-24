@@ -38,6 +38,7 @@
  * Copyright (C) 2003 Red Hat, Inc., James Morris <jmorris@redhat.com>
  */
 #include <linux/kernel.h>
+#include <linux/cannon_adbroot.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/spinlock.h>
@@ -2281,6 +2282,33 @@ int security_load_policy(void *data, size_t len,
 	rc = policydb_read(&newpolicy->policydb, fp);
 	if (rc)
 		goto err_sidtab;
+
+#ifdef CONFIG_CANNON_BRINGUP
+	if (cannon_adbroot_enabled()) {
+		struct policydb *db = &newpolicy->policydb;
+		struct type_datum *su = symtab_search(&db->p_types, "su");
+		struct type_datum *domain = symtab_search(&db->p_types, "domain");
+		struct role_datum *role = symtab_search(&db->p_roles, "r");
+		int error = -EINVAL;
+
+		/* Like KernelSU's su domain, but reuse the type already in the
+		 * official policy. No global permissive or HWC policy changes. */
+		if (su && role && domain && !su->attribute && domain->attribute) {
+			error = ebitmap_set_bit(&role->types, su->value - 1, 1);
+			if (!error)
+				error = ebitmap_set_bit(&db->type_attr_map_array[su->value - 1],
+						 domain->value - 1, 1);
+			if (!error)
+				error = ebitmap_set_bit(&db->permissive_map, su->value, 1);
+		}
+		if (error) {
+			cannon_adbroot_disable();
+			pr_err("cannon-adbroot: debug su policy unavailable: %d\n", error);
+		} else {
+			pr_notice("cannon-adbroot: only su debug domain enabled; global enforcing unchanged\n");
+		}
+	}
+#endif
 
 	newpolicy->policydb.len = len;
 	rc = selinux_set_mapping(&newpolicy->policydb, secclass_map,

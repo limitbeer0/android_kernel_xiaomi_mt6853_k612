@@ -31,6 +31,7 @@
 #include <linux/types.h>
 #include <linux/watchdog.h>
 #include <linux/interrupt.h>
+#include <linux/workqueue.h>
 
 #define WDT_MAX_TIMEOUT		31
 #define WDT_MIN_TIMEOUT		2
@@ -69,6 +70,12 @@
 static bool nowayout = WATCHDOG_NOWAYOUT;
 static unsigned int timeout;
 
+#ifdef CONFIG_CANNON_BRINGUP
+/* Diagnostic only: finite 90s/600s windows, never an unlimited keepalive. */
+static unsigned int cannon_budget;
+module_param(cannon_budget, uint, 0);
+#endif
+
 struct mtk_wdt_dev {
 	struct watchdog_device wdt_dev;
 	void __iomem *wdt_base;
@@ -77,6 +84,11 @@ struct mtk_wdt_dev {
 	bool disable_wdt_extrst;
 	bool reset_by_toprgu;
 	bool has_swsysrst_en;
+#ifdef CONFIG_CANNON_BRINGUP
+	struct delayed_work cannon_ping_work;
+	unsigned int cannon_pings_left;
+	bool cannon_budget_started;
+#endif
 };
 
 struct mtk_wdt_data {
@@ -257,6 +269,45 @@ static int mtk_wdt_ping(struct watchdog_device *wdt_dev)
 	return 0;
 }
 
+#ifdef CONFIG_CANNON_BRINGUP
+static void cannon_budget_ping(struct work_struct *work)
+{
+	struct mtk_wdt_dev *data = container_of(to_delayed_work(work),
+					      struct mtk_wdt_dev, cannon_ping_work);
+
+	if (!(readl(data->wdt_base + WDT_MODE) & WDT_MODE_EN) ||
+	    !data->cannon_pings_left)
+		return;
+	mtk_wdt_ping(&data->wdt_dev);
+	data->cannon_pings_left--;
+	pr_notice("cannon-wdt: bounded kernel keepalive, %u remaining\n",
+		  data->cannon_pings_left);
+	if (data->cannon_pings_left)
+		schedule_delayed_work(&data->cannon_ping_work, 20 * HZ);
+}
+
+static void cannon_budget_cancel(void *argument)
+{
+	struct mtk_wdt_dev *data = argument;
+
+	cancel_delayed_work_sync(&data->cannon_ping_work);
+}
+
+static void cannon_budget_start(struct watchdog_device *wdt_dev)
+{
+	struct mtk_wdt_dev *data = watchdog_get_drvdata(wdt_dev);
+
+	if ((cannon_budget != 90 && cannon_budget != 600) || data->cannon_budget_started ||
+	    !of_machine_is_compatible("xiaomi,cannon"))
+		return;
+	data->cannon_budget_started = true;
+	data->cannon_pings_left = (cannon_budget - 30) / 20;
+	schedule_delayed_work(&data->cannon_ping_work, 20 * HZ);
+	pr_notice("cannon-wdt: %u kernel keepalives armed, budget=%us hardware timeout=%u\n",
+		  data->cannon_pings_left, cannon_budget, wdt_dev->timeout);
+}
+#endif
+
 static int mtk_wdt_set_timeout(struct watchdog_device *wdt_dev,
 				unsigned int timeout)
 {
@@ -281,6 +332,12 @@ static int mtk_wdt_set_timeout(struct watchdog_device *wdt_dev,
 	iowrite32(reg, wdt_base + WDT_LENGTH);
 
 	mtk_wdt_ping(wdt_dev);
+
+#ifdef CONFIG_CANNON_BRINGUP
+	/* The bootloader may leave HW_RUNNING set, in which case watchdog
+	 * core opens the device by pinging it and never calls ->start(). */
+	cannon_budget_start(wdt_dev);
+#endif
 
 	return 0;
 }
@@ -309,6 +366,10 @@ static int mtk_wdt_stop(struct watchdog_device *wdt_dev)
 	reg |= WDT_MODE_KEY;
 	iowrite32(reg, wdt_base + WDT_MODE);
 
+#ifdef CONFIG_CANNON_BRINGUP
+	cancel_delayed_work(&mtk_wdt->cannon_ping_work);
+#endif
+
 	return 0;
 }
 
@@ -334,6 +395,10 @@ static int mtk_wdt_start(struct watchdog_device *wdt_dev)
 		reg |= WDT_MODE_CNT_SEL;
 	reg |= (WDT_MODE_EN | WDT_MODE_KEY);
 	iowrite32(reg, wdt_base + WDT_MODE);
+
+#ifdef CONFIG_CANNON_BRINGUP
+	cannon_budget_start(wdt_dev);
+#endif
 
 	return 0;
 }
@@ -407,6 +472,13 @@ static int mtk_wdt_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	platform_set_drvdata(pdev, mtk_wdt);
+
+#ifdef CONFIG_CANNON_BRINGUP
+	INIT_DELAYED_WORK(&mtk_wdt->cannon_ping_work, cannon_budget_ping);
+	err = devm_add_action_or_reset(dev, cannon_budget_cancel, mtk_wdt);
+	if (err)
+		return err;
+#endif
 
 	mtk_wdt->wdt_base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(mtk_wdt->wdt_base))

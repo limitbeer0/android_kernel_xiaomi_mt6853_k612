@@ -4,6 +4,9 @@
 #
 menu "Clock driver for MediaTek SoC"
 	depends on ARCH_MEDIATEK || COMPILE_TEST
+	# Cannon uses the paired device-module clock core; exporting both cores
+	# would duplicate mtk_alloc_clk_data and the registration helpers.
+	depends on !CANNON_BRINGUP
 
 config COMMON_CLK_MEDIATEK
 	tristate

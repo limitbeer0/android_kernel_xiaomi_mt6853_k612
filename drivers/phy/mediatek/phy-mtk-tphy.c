@@ -90,6 +90,7 @@
 #define P2C_RG_SIF_U2PLL_FORCE_ON	BIT(24)
 
 #define U3P_U2PHYDTM0		0x068
+#define P2C_RG_UART_MODE		GENMASK(31, 30)
 #define P2C_FORCE_UART_EN		BIT(26)
 #define P2C_FORCE_DATAIN		BIT(23)
 #define P2C_FORCE_DM_PULLDOWN		BIT(21)
@@ -110,6 +111,9 @@
 		P2C_RG_DPPULLDOWN | P2C_RG_TERMSEL)
 
 #define U3P_U2PHYDTM1		0x06C
+#define P2C_FORCE_VBUSVALID		BIT(13)
+#define P2C_FORCE_SESSEND		BIT(12)
+#define P2C_FORCE_AVALID		BIT(10)
 #define P2C_RG_UART_EN			BIT(16)
 #define P2C_FORCE_IDDIG		BIT(9)
 #define P2C_RG_VBUSVALID		BIT(5)
@@ -877,6 +881,17 @@ static void u2_phy_instance_init(struct mtk_tphy *tphy,
 	/* Workaround only for mt8195, HW fix it for others (V3) */
 	u2_phy_pll_26m_set(tphy, instance);
 
+	if (IS_ENABLED(CONFIG_CANNON_BRINGUP) &&
+	    of_device_is_compatible(tphy->dev->of_node, "xiaomi,cannon-tphy")) {
+		/* Match the running MT6853 phy_init_soc: UART mode off,
+		 * DP/DM 100K pulls off, and software-owned session inputs. */
+		mtk_phy_clear_bits(com + U3P_U2PHYDTM0, P2C_RG_UART_MODE);
+		mtk_phy_update_bits(com + U3P_U2PHYACR4,
+				    BIT(18) | BIT(17) | BIT(16), BIT(18));
+		mtk_phy_set_bits(com + U3P_U2PHYDTM1,
+				 P2C_FORCE_VBUSVALID | P2C_FORCE_AVALID | P2C_FORCE_SESSEND);
+	}
+
 	dev_dbg(tphy->dev, "%s(%d)\n", __func__, index);
 }
 
@@ -893,6 +908,18 @@ static void u2_phy_instance_power_on(struct mtk_tphy *tphy,
 	mtk_phy_set_bits(com + U3P_U2PHYDTM1, P2C_RG_VBUSVALID | P2C_RG_AVALID);
 
 	mtk_phy_clear_bits(com + U3P_U2PHYDTM1, P2C_RG_SESSEND);
+
+	if (IS_ENABLED(CONFIG_CANNON_BRINGUP) &&
+	    of_device_is_compatible(tphy->dev->of_node, "xiaomi,cannon-tphy")) {
+		/* MT6853's working 4.14 recover path keeps the comparator off
+		 * while driving VBUSVALID/AVALID/SESSEND in software. */
+		mtk_phy_clear_bits(com + U3P_USBPHYACR6, PA6_RG_U2_OTG_VBUSCMP_EN);
+		mtk_phy_set_bits(com + U3P_U2PHYDTM1,
+				 P2C_FORCE_VBUSVALID | P2C_FORCE_AVALID | P2C_FORCE_SESSEND);
+		dev_notice(tphy->dev, "cannon USB2 DTM0=%#x DTM1=%#x ACR4=%#x ACR6=%#x\n",
+			   readl(com + U3P_U2PHYDTM0), readl(com + U3P_U2PHYDTM1),
+			   readl(com + U3P_U2PHYACR4), readl(com + U3P_USBPHYACR6));
+	}
 
 	if (tphy->pdata->avoid_rx_sen_degradation && index) {
 		mtk_phy_set_bits(com + U3D_U2PHYDCR0, P2C_RG_SIF_U2PLL_FORCE_ON);

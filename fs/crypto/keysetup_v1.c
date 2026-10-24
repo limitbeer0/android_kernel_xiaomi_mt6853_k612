@@ -272,6 +272,9 @@ static int setup_v1_file_key_derived(struct fscrypt_inode_info *ci,
 	u8 *derived_key;
 	int err;
 
+	if (fscrypt_cannon_legacy_v1(ci))
+		return fscrypt_set_per_file_enc_key(ci, raw_master_key);
+
 	/*
 	 * This cannot be a stack buffer because it will be passed to the
 	 * scatterlist crypto API during derive_key_aes().

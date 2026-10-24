@@ -45,6 +45,9 @@ static unsigned int fscrypt_get_dun_bytes(const struct fscrypt_inode_info *ci)
 	unsigned int flags = fscrypt_policy_flags(&ci->ci_policy);
 	int dun_bits;
 
+	if (fscrypt_cannon_legacy_v1(ci))
+		return sizeof(__le64);
+
 	if (flags & FSCRYPT_POLICY_FLAG_DIRECT_KEY)
 		return offsetofend(union fscrypt_iv, nonce);
 

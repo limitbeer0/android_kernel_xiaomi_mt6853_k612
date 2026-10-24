@@ -786,6 +786,21 @@ static int ramoops_probe(struct platform_device *pdev)
 
 	dump_mem_sz = cxt->size - cxt->console_size - cxt->ftrace_size
 			- cxt->pmsg_size;
+	if (IS_ENABLED(CONFIG_CANNON_BRINGUP)) {
+		/* The working MTK 4.14 reader has a second console-sized AEE
+		 * area after the console. Keep its offsets so that rebooting
+		 * the old kernel can recover a failed 6.12 boot's console.
+		 * Do not write the AEE shadow area from this kernel.
+		 */
+		if (cxt->console_size > cxt->size / 2 ||
+		    cxt->ftrace_size > cxt->size - 2 * cxt->console_size ||
+		    cxt->pmsg_size > cxt->size - 2 * cxt->console_size -
+						cxt->ftrace_size) {
+			err = -EINVAL;
+			goto fail_out;
+		}
+		dump_mem_sz -= cxt->console_size;
+	}
 	err = ramoops_init_przs("dmesg", dev, cxt, &cxt->dprzs, &paddr,
 				dump_mem_sz, cxt->record_size,
 				&cxt->max_dump_cnt, 0, 0);
@@ -797,10 +812,14 @@ static int ramoops_probe(struct platform_device *pdev)
 	if (err)
 		goto fail_init;
 
-	err = ramoops_init_prz("pmsg", dev, cxt, &cxt->mprz, &paddr,
-				cxt->pmsg_size, 0);
-	if (err)
-		goto fail_init;
+	if (IS_ENABLED(CONFIG_CANNON_BRINGUP)) {
+		paddr += cxt->console_size;
+	} else {
+		err = ramoops_init_prz("pmsg", dev, cxt, &cxt->mprz, &paddr,
+					cxt->pmsg_size, 0);
+		if (err)
+			goto fail_init;
+	}
 
 	cxt->max_ftrace_cnt = (cxt->flags & RAMOOPS_FLAG_FTRACE_PER_CPU)
 				? nr_cpu_ids
@@ -812,6 +831,15 @@ static int ramoops_probe(struct platform_device *pdev)
 					? PRZ_FLAG_NO_LOCK : 0);
 	if (err)
 		goto fail_init;
+
+	if (IS_ENABLED(CONFIG_CANNON_BRINGUP)) {
+		/* MTK 4.14 places ftrace before pmsg, unlike upstream 6.12. */
+		err = ramoops_init_prz("pmsg", dev, cxt, &cxt->mprz, &paddr,
+					cxt->pmsg_size, 0);
+		if (err)
+			goto fail_init;
+		dev_info(dev, "cannon 4.14-compatible ramoops layout enabled\n");
+	}
 
 	cxt->pstore.data = cxt;
 	/*

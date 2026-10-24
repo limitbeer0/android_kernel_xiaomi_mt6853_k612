@@ -351,6 +351,15 @@ union fscrypt_iv {
 void fscrypt_generate_iv(union fscrypt_iv *iv, u64 index,
 			 const struct fscrypt_inode_info *ci);
 
+#ifdef CONFIG_CANNON_BRINGUP
+bool fscrypt_cannon_legacy_v1(const struct fscrypt_inode_info *ci);
+#else
+static inline bool fscrypt_cannon_legacy_v1(const struct fscrypt_inode_info *ci)
+{
+	return false;
+}
+#endif
+
 /*
  * Return the number of bits used by the maximum file data unit index that is
  * possible on the given filesystem, using the given log2 data unit size.

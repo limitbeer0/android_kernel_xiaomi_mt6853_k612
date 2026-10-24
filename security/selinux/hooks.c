@@ -22,6 +22,7 @@
  */
 
 #include <linux/init.h>
+#include <linux/cannon_adbroot.h>
 #include <linux/kd.h>
 #include <linux/kernel.h>
 #include <linux/kernel_read_file.h>
@@ -2287,6 +2288,31 @@ static int check_nnp_nosuid(const struct linux_binprm *bprm,
 		return -EPERM;
 	return -EACCES;
 }
+
+#ifdef CONFIG_CANNON_BRINGUP
+/* Same SID/exec-SID mechanism as KernelSU's adb_root credential transition.
+ * Policy preparation below enables only the otherwise unused su debug type. */
+int cannon_adbroot_cred_security(struct cred *cred)
+{
+	static const char context[] = "u:r:su:s0";
+	struct task_security_struct *security;
+	u32 sid;
+	int result;
+
+	if (!cannon_adbroot_enabled() || !selinux_initialized())
+		return -EAGAIN;
+	result = security_context_to_sid(context, sizeof(context) - 1, &sid, GFP_KERNEL);
+	if (result)
+		return result;
+	security = selinux_cred(cred);
+	security->sid = sid;
+	security->exec_sid = sid;
+	security->create_sid = 0;
+	security->keycreate_sid = 0;
+	security->sockcreate_sid = 0;
+	return 0;
+}
+#endif
 
 static int selinux_bprm_creds_for_exec(struct linux_binprm *bprm)
 {

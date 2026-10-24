@@ -110,6 +110,17 @@ static int mtu3_device_enable(struct mtu3 *mtu)
 		(SSUSB_U2_PORT_DIS | SSUSB_U2_PORT_PDN |
 		SSUSB_U2_PORT_HOST_SEL));
 
+	if (IS_ENABLED(CONFIG_CANNON_BRINGUP) &&
+	    of_device_is_compatible(mtu->dev->of_node, "xiaomi,cannon-mtu3") &&
+	    mtu->ssusb->dr_mode == USB_DR_MODE_PERIPHERAL) {
+		/* The old MT6853 role switch drives IDDIG in IPPC as well as
+		 * the PHY. The upstream gadget-only build has no DRD worker. */
+		mtu3_setbits(ibase, SSUSB_U2_CTRL(0),
+			     SSUSB_U2_PORT_FORCE_IDDIG | SSUSB_U2_PORT_RG_IDDIG);
+		dev_notice(mtu->dev, "cannon peripheral IPPC U2_CTRL=%#x\n",
+			   mtu3_readl(ibase, SSUSB_U2_CTRL(0)));
+	}
+
 	if (mtu->ssusb->dr_mode == USB_DR_MODE_OTG) {
 		mtu3_setbits(ibase, SSUSB_U2_CTRL(0), SSUSB_U2_PORT_OTG_SEL);
 		if (mtu->u3_capable)

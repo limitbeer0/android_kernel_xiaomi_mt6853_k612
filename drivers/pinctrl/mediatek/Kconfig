@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
 menu "MediaTek pinctrl drivers"
 	depends on ARCH_MEDIATEK || RALINK || COMPILE_TEST
+	# The cannon module tree provides Paris/common-v2/EINT as a matched set.
+	depends on !CANNON_BRINGUP
 
 config EINT_MTK
 	tristate "MediaTek External Interrupt Support"
