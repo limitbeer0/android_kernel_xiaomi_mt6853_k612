@@ -1,0 +1,17 @@
+Cannon Mali-G57 hardware workaround
+==================================
+
+valhall-1691526.wa is copied byte-for-byte from the working reference tree:
+MT6853T_xiaomi_custom_kernel/firmware/valhall-1691526.wa
+
+Size: 440 bytes
+SHA256: 1a52a7f3c7c8b15e13e226d0956091621a83baafd80a3f93debb8271110e5951
+
+The reference arch/arm64/configs/cannon_defconfig already uses:
+CONFIG_EXTRA_FIRMWARE="valhall-1691526.wa"
+CONFIG_EXTRA_FIRMWARE_DIR="firmware"
+
+Cannon's 6.12 config uses the same built-in firmware mechanism. This makes
+the workaround available both before and after Android switches its rootfs,
+without modifying the stock vendor partition or bypassing the GPU erratum.
+The r32p1 JM loader expects the WA signature 0x4157 and format version 2.
