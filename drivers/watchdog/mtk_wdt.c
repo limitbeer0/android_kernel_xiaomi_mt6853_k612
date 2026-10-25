@@ -32,6 +32,7 @@
 #include <linux/watchdog.h>
 #include <linux/interrupt.h>
 #include <linux/workqueue.h>
+#include <linux/panic_notifier.h>
 
 #define WDT_MAX_TIMEOUT		31
 #define WDT_MIN_TIMEOUT		2
@@ -74,6 +75,12 @@ static unsigned int timeout;
 /* Diagnostic only: finite 90s/600s windows, never an unlimited keepalive. */
 static unsigned int cannon_budget;
 module_param(cannon_budget, uint, 0);
+static bool cannon_panic_recovery;
+module_param(cannon_panic_recovery, bool, 0);
+
+/* MT6853 vendor reboot ABI, also used by the working 4.14 watchdog. */
+#define CANNON_WDT_NONRST_REG2	0x24
+#define CANNON_WDT_RECOVERY	BIT(1)
 #endif
 
 struct mtk_wdt_dev {
@@ -88,6 +95,7 @@ struct mtk_wdt_dev {
 	struct delayed_work cannon_ping_work;
 	unsigned int cannon_pings_left;
 	bool cannon_budget_started;
+	struct notifier_block cannon_panic_nb;
 #endif
 };
 
@@ -270,6 +278,31 @@ static int mtk_wdt_ping(struct watchdog_device *wdt_dev)
 }
 
 #ifdef CONFIG_CANNON_BRINGUP
+static int cannon_panic_to_recovery(struct notifier_block *nb,
+				    unsigned long event, void *message)
+{
+	struct mtk_wdt_dev *data = container_of(nb, struct mtk_wdt_dev,
+					      cannon_panic_nb);
+	u32 reg;
+
+	/* Panic context: no storage, allocation or sleeping locks. The following
+	 * warm reset retains NONRST_REG2 for the stock bootloader to consume.
+	 */
+	reg = readl(data->wdt_base + CANNON_WDT_NONRST_REG2);
+	writel(reg | CANNON_WDT_RECOVERY,
+	       data->wdt_base + CANNON_WDT_NONRST_REG2);
+	reg = readl(data->wdt_base + CANNON_WDT_NONRST_REG2);
+	pr_emerg("cannon-wdt: panic recovery request NONRST_REG2=%#x\n", reg);
+	return NOTIFY_DONE;
+}
+
+static void cannon_panic_unregister(void *argument)
+{
+	struct mtk_wdt_dev *data = argument;
+
+	atomic_notifier_chain_unregister(&panic_notifier_list, &data->cannon_panic_nb);
+}
+
 static void cannon_budget_ping(struct work_struct *work)
 {
 	struct mtk_wdt_dev *data = container_of(to_delayed_work(work),
@@ -537,6 +570,21 @@ static int mtk_wdt_probe(struct platform_device *pdev)
 
 	mtk_wdt->reset_by_toprgu =
 		of_property_read_bool(dev->of_node, "mediatek,reset-by-toprgu");
+
+#ifdef CONFIG_CANNON_BRINGUP
+	if (cannon_panic_recovery && of_machine_is_compatible("xiaomi,cannon")) {
+		mtk_wdt->cannon_panic_nb.notifier_call = cannon_panic_to_recovery;
+		mtk_wdt->cannon_panic_nb.priority = INT_MAX;
+		err = atomic_notifier_chain_register(&panic_notifier_list,
+						   &mtk_wdt->cannon_panic_nb);
+		if (err)
+			return err;
+		err = devm_add_action_or_reset(dev, cannon_panic_unregister, mtk_wdt);
+		if (err)
+			return err;
+		dev_notice(dev, "Cannon panic-to-Recovery notifier enabled\n");
+	}
+#endif
 
 	return 0;
 }
