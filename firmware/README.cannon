@@ -15,3 +15,20 @@ Cannon's 6.12 config uses the same built-in firmware mechanism. This makes
 the workaround available both before and after Android switches its rootfs,
 without modifying the stock vendor partition or bypassing the GPU erratum.
 The r32p1 JM loader expects the WA signature 0x4157 and format version 2.
+
+Novatek NT36672A touch firmware
+==============================
+novatek_ts_fw.bin and novatek_ts_mp.bin are converted with objcopy -I ihex
+-O binary from the working 4.14 reference firmware/*.bin.ihex files.
+Each is 118784 bytes. Both match byte-for-byte ranges in the known-working
+MIUI14 4.14 boot kernel (boot SHA256
+8bf3c2169c5eb77974068fdd286918454f7bfba207ecd01c436bf1d94c95eabb).
+Normal firmware starts at decompressed kernel offset 19952288, MP at 20071072.
+Both carry firmware version 18, matching the live Rec2 /proc/nvt_fw_version.
+
+Normal SHA256: 1f5f956304fcf214543648b2178732fdcba7d1cf39ef36c45834004be3743b75
+MP SHA256: 19ee2abd9405e9d053153e4124eeee9359ec0fa1be1f31ea7c13bff1cc2cf19f
+
+These are built in through CONFIG_EXTRA_FIRMWARE, available during module
+probing before vendor mounts and after switch_root. Do not rename unrelated
+firmware files to these names or infer the IC from candidate DTBO nodes.
