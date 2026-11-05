@@ -69,7 +69,7 @@ static int __init cannon_expdb_seconds_param(char *value)
 {
 	unsigned int seconds;
 
-	if (!value || kstrtouint(value, 0, &seconds) || seconds < 120 || seconds > 660)
+	if (!value || kstrtouint(value, 0, &seconds) || seconds < 120 || seconds > 1860)
 		return -EINVAL;
 	writer_seconds = seconds;
 	return 0;

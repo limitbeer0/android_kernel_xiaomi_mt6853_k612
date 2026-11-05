@@ -18,6 +18,8 @@
 #include <linux/slab.h>
 #include <linux/timer.h>
 #include <linux/leds.h>
+#include <linux/of.h>
+#include <linux/string.h>
 #include "../leds.h"
 
 /*#ifdef OPLUS_FEATURE_CHG_BASIC*/
@@ -184,6 +186,13 @@ static int transient_trig_activate(struct led_classdev *led_cdev)
 	tdata = kzalloc(sizeof(struct transient_trig_data), GFP_KERNEL);
 	if (!tdata)
 		return -ENOMEM;
+	/* Cannon's stock vibrator HAL writes duration/activate only. Its
+	 * pulse must turn the motor on, then restore the idle off state.
+	 */
+	if (IS_ENABLED(CONFIG_CANNON_BRINGUP) &&
+	    of_machine_is_compatible("xiaomi,cannon") &&
+	    !strcmp(led_cdev->name, "vibrator"))
+		tdata->state = LED_FULL;
 
 	led_set_trigger_data(led_cdev, tdata);
 	tdata->led_cdev = led_cdev;

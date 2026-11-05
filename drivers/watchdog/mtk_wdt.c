@@ -72,7 +72,7 @@ static bool nowayout = WATCHDOG_NOWAYOUT;
 static unsigned int timeout;
 
 #ifdef CONFIG_CANNON_BRINGUP
-/* Diagnostic only: finite 90s/600s windows, never an unlimited keepalive. */
+/* Diagnostic only: finite 90s/600s/1800s windows, never an unlimited keepalive. */
 static unsigned int cannon_budget;
 module_param(cannon_budget, uint, 0);
 static bool cannon_panic_recovery;
@@ -330,7 +330,7 @@ static void cannon_budget_start(struct watchdog_device *wdt_dev)
 {
 	struct mtk_wdt_dev *data = watchdog_get_drvdata(wdt_dev);
 
-	if ((cannon_budget != 90 && cannon_budget != 600) || data->cannon_budget_started ||
+	if ((cannon_budget != 90 && cannon_budget != 600 && cannon_budget != 1800) || data->cannon_budget_started ||
 	    !of_machine_is_compatible("xiaomi,cannon"))
 		return;
 	data->cannon_budget_started = true;
